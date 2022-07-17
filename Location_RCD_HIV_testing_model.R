@@ -1,22 +1,5 @@
-### Code to model HIV transmission amongst a network of PWID - based on ALIVE data - and focused on looking at changes to network structure and COVID-19 impacts (reductions in syringe services)
+### Code to model HIV transmission amongst a network of PWID who are different locations. the goal is to investigate the difference between location based testing strategies and rcd strategies. 
 
-# How is the model set up?
-#   Individuals are connecting to other individuals in the network where ties represent injecting partnerships. All individuals are given an age, gender, and race where connections between individuals are modeled assuming an stochastic block model with biases towards connections based on age (i.e. age-structured mixing). Currently there is no clustering by gender and race. The values for this are based on the Bridger data. 
-#   All individuals have a risk category that dictates: their injecting frequency, initation/cessation patterns. Individuals risk categorys also impact the likelihood that they will use SSP and MOUD (if it is available). 
-#   Demography includes aging, death (age specific and overdose)
-#   Currently no individuals are born into the population.
-#   Individuals cannot change their contacts but can stop/restart injecting. 
-
-# How does HIV transmission occur? 
-#   All individuals, aside from a few randomly selected individuals started uninfected in the model.
-#   In each time step, if an individual is an active injector, there will be some probability that they will become infected/transmit HIV - there is also a small amount of sexual transmission. 
-#   Individuals have a random probability of being tested. 
-#   Individuals can be on treatment, which reduces their transmission probability.
-#   Individuals are more infectious at the initial stages of their infection. 
-
-# Scenarios:
-#   We are considering a few scenarios where injecting events change during COVID-19 and/or there are reductions in access to SSP and MOUD. 
-  
 # Load libraries 
 library(numbers)
 library(statnet)
@@ -29,59 +12,49 @@ library(ggplot2)
 
 ## set up network, time steps 
 ### time units are monthly 
-n <-5000 ## population size of the entire population -- need to update set to 20k or 35k 
+n <-500 ## population size of the entire population
 n_years <-  10
 time_steps <- n_years*12 ## monthly time steps for 5 years 
 
 ### demographic information
-
 ## 18 - 65
 age_distribution <- 0.1*c(rep(2,(25-18)), rep(22,(35-25)), rep(16,(45-35)), rep(60,(66-45)))
 age_distribution <- age_distribution/sum(age_distribution)
-
-## 1 = white, 2 = black (not hispanic), 3 = hispanic, 4 = other
-race_distribution = c(0.4, 0.54, 0.01, 0.04) ## 1 = black; 2 =hispanic; 3 = white; 4 = other from BeSure
-gender_distribution = c(0.7, 0.29, 0.01) ## male, female, transgendered  From BeSure
-sexual_identity = c(0.89,0.11) ## 1= hetero, 2 is other - currently not used 
 age_vec = sample(18:65, size = n, prob = age_distribution, replace = TRUE)
 age_group_vec <- sapply(age_vec, function(x) cut(x, breaks = c(0,30,50,100)))
-race_vec = sample(1:length(race_distribution), size = n, prob = race_distribution, replace = TRUE)
-gender_vec = sample(1:length(gender_distribution), size = n, prob = gender_distribution, replace = TRUE)
 
+## number of locations individuals frequent 
+n_locations = 10
+location_distribution <- rep(1/n_locations, n_locations) ## probability an individual will be assigned to a specific location - NEED TO UPDATE
 
-## make stochastic block model network of PWID 
 library(igraph)
 library(randnet)
 pl_fit_alpha = 3.431536 ## data from bridgers paper 
 mean_ego_network_dist = 3.556054
-sim_model <- BlockModel.Gen(lambda = mean_ego_network_dist, n = n, beta = 0.6, K = 4, alpha = pl_fit_alpha, Pi = c(2,22,16,60))
+sim_model <- BlockModel.Gen(lambda = mean_ego_network_dist, n = n, beta = 0.6, K = n_locations, alpha = pl_fit_alpha, Pi = location_distribution)
 ## lambda = avg degree, n = number of nodes, beta = prob within block edge, k = number of blocks 
 # A - adj matrix; g = community membership; P = probability matrix of network; theta = ndoe degree parameter
 inj_network <- sim_model$A
-group_membership <- sim_model$g ## WILL NEED TO COUPLE THIS WILL AGE DISTRIBUTION - double check that pi values are coupling - reset age distributions to make sure these are matching 
-## likely need to make age_group_vec = group_membership 
-deg_dist <- rowSums(inj_network, na.rm=T)
+group_membership <- sim_model$g ## WILL NEED TO COUPLE THIS WILL location distribution 
 
-## make a plot of degree distribution 
-hist(deg_dist, xlab = 'Degree', col = 'white', main = 'Degree distribution')
+## group membership from the network is the vector of assigned locations 
+location_vec <- group_membership
+## note: make stochastic block model network of PWID - we could just change this to use the actual network later 
 
-### strength of ties - based on injecting frequency
-# 
-# through 2019 - 59% were on moud, 36% injected at least daily, 11% share d - this is full cohort
-# range 20-50% and te
-# ok, so i know nothing about testing/diagnosis but we should have suppression decrease - 90% were on ART in 2019  with about 70% of those suppressed
-
-### mortality rates
+### mortality rates - both age specific and overdose 
 mortality_rates <- c(rep(0,18), rep(1.2, 25-18), rep(2.5, 35-25), rep(3.5, 45-35), rep(6.7, 55-45), rep(12.2, 66-44)) ## per 1,000 person-years -- need to update depending on age_distribution 
 ### needs a scaling for HIV positive ??? 
 ### overdose rates  ???? is this the most updated value we could use 
 fixed_od_rate <- 13/1000/12#28.3/100000 # per 100,000 standard population https://www.cdc.gov/nchs/products/databriefs/db428.htm
+
 
 pop_matrix <- matrix(,n,time_steps) ## keep track of each persons age
 ### for monthly data
 n_years = time_steps/12
 pop_matrix <- t(sapply(age_vec, function(x) seq(x, x+n_years, length = time_steps)))
 pop_matrix <- t(apply(pop_matrix, 1, function(x) floor(x)))
+
+###
 
 prob_sexual <- 0.13 ### probability if they are an injection partner then they are also a sexual partner 
 sexual_network <- t(apply(inj_network, 1, function(x) ifelse(x == 1, rbinom(1, size = 1, prob=prob_sexual),0)))
@@ -103,24 +76,12 @@ reduce_hiv_trans_w_out_viral_spress <- 0.17
 
 base_syring_share_prob = 0.011
 
-### make plot to show difference in injection acts distribution 
-xx <- 10000
-figure_display_lambda <- data.frame(group = c(rep('standard', xx), rep('high', xx), rep('moderate', xx), rep('other', xx)), inj_acts = c(rpois(10000, lambda = lambda_vec[1]), rpois(10000, lambda = lambda_vec[2]), rpois(10000, lambda = lambda_vec[3]),rpois(10000, lambda = lambda_vec[4])))
-
-pal <- brewer.pal(4, 'PRGn')
-figure_display_lambda %>%  ggplot( aes(x=inj_acts, fill = group, color = group)) +  geom_density(alpha = 0.75) + theme_bw() + xlab('Injection acts per month') + theme(legend.position="right") + scale_fill_manual(values = pal) + scale_color_manual(values = pal)
-
-
 ### modeling starting/stopping patterns - mostly to set up the options and make a preliminary plot 
 
 stop_list <- data.frame(year_vec = seq(0,10,by = 0.5), 
                         early_line = c(1.0, 0.95, 0.7, 0.52, 0.4, 0.33, 0.25, 0.18, 0.12, 0.1, 0.09, rep(0.05, 10)), 
                         delay_line = c(1.0, 1.0, 0.97, 0.96, 0.95, 0.92, 0.88, 0.83, 0.77, 0.69, 0.6, 0.5, 0.4, 0.3, 0.25, 0.2, 0.17, 0.12, 0.1, 0.1, 0.09), 
                         persistent_line = c(seq(1.0, 0.95, length = 15), seq(0.94,0.9,length=21-15)))
-
-stop_list_plot <- data.frame(year_vec = rep(stop_list$year_vec, 3), values = c(stop_list$early_line, stop_list$delay_line, stop_list$persistent_line), cat = c(rep('early', length(stop_list$early_line)), rep('delayed', length(stop_list$early_line)), rep('persistent', length(stop_list$early_line))))
-
-ggplot(stop_list_plot, aes(x = year_vec, y = values, group = cat)) + geom_line()
 
 start <- list(beta = 2)
 exp_model_early <- nls(early_line ~ exp(beta * year_vec), data = stop_list, start = start)
@@ -130,17 +91,6 @@ exp_model_persistent <- nls(persistent_line ~ exp(beta * year_vec), data = stop_
 exp_model_early_predict <- predict(exp_model_early, list(year_vec = seq(0,n_years*2, length = time_steps)) )
 exp_model_delay_predict <- predict(exp_model_delay, list(year_vec = seq(0,n_years*2, length = time_steps)) )
 exp_model_persistent_predict <- predict(exp_model_persistent, list(year_vec = seq(0,n_years*2, length = time_steps)))
-
-pal_test <- brewer.pal(8, 'Set1')
-
-plot(NA, NA, xlim = c(0,n_years*2), ylim = c(0,1), xlab = 'Years', ylab = 'Probability of injecting drugs')
-lines(seq(0,n_years*2, length = time_steps), exp_model_early_predict, col = pal_test[2], lwd = 2)
-points(stop_list$year_vec, stop_list$early_line, col = pal_test[2], pch = 16)
-lines(seq(0,n_years*2, length = time_steps), exp_model_delay_predict, col = pal_test[3], lwd = 2)
-points(stop_list$year_vec, stop_list$delay_line, col = pal_test[3], pch = 16)
-lines(seq(0,n_years*2, length = time_steps), exp_model_persistent_predict, col = pal_test[5], lwd = 2)
-points(stop_list$year_vec, stop_list$persistent_line, col = pal_test[5], pch = 16)
-abline(h=0.5, lty = 2, col = pal_test[1], lwd = 2)
 
 ## figuring out cessation/relapse patterns per individual
 
@@ -176,7 +126,9 @@ active_status_prob = stop_start_param$active_status_prob
 stop_start_membership = stop_start_param$membership_vec
 
 ### main code
-run_simulation <- function(risk_group, skew_matrix, syring_share_on, moud_on, initiation_rate, cessation_rate, inj_network, sexual_network, active_status_prob, stop_start_membership, lambda_vec){
+## ratio testing: proportion of testing being done from each strategy 
+
+run_simulation_loc <- function(risk_group, skew_matrix, syring_share_on, moud_on, initiation_rate, cessation_rate, inj_network, sexual_network, active_status_prob, stop_start_membership, lambda_vec, location_vec, loc_testing_binary, rcd_testing_binary, random_testing_binary, ratio_testing){
   moud_effect <- c(0.6, 0.6, 0.3, 0.1) ## how much should injecting events decrease by if using MOUD
   likelihood_on_moud <- c(0.3, 0.3, 0.4, 0.5) ## what is the probability that a person in each stop/start group is on MOUD when it is available - from ALIVE/BECKY 
   indiv_moud_on <- sapply(stop_start_membership, function(x) rbinom(1,size = 1, prob = likelihood_on_moud[x])) ## is the individual on MOUD
@@ -187,6 +139,9 @@ run_simulation <- function(risk_group, skew_matrix, syring_share_on, moud_on, in
   hiv_status_matrix <- matrix(0,n,time_steps) ### hiv status: what is the individuals active status 1 = positive, 0 = negative 
   hiv_supp_matrix <- matrix(0,n,time_steps) ### hiv suppression: if infected, are they virially supressed? 1 = yes, 0 = no
   hiv_diag_matrix <- matrix(0,n,time_steps) ### hiv diag: has the individual been diagnoised with HIV or not  1 = yes, 0 = no
+  
+  ## where diagnoised -> 1 = location, 2 = random, 3 = rcd  
+  diag_loc <- rep(NA, n) ## only for your initial diagnosis 
   
   inj_events_per_indiv <- matrix(NA,n,time_steps) ### number of injecting events per individual 
   mean_inj_events_per_partner <- matrix(NA,n,time_steps) ## mean number of injectinv events per individual
@@ -202,6 +157,12 @@ run_simulation <- function(risk_group, skew_matrix, syring_share_on, moud_on, in
   hiv_status_matrix[,1] = 0
   hiv_status_matrix[start_infected,1] = 1
   
+  ## who infects whom -> 0 means no one infected you (you were a seed)
+  wiw <- matrix(NA,n,n)
+  for(bb in 1:length(start_infected)){
+    wiw[start_infected[bb], start_infected[bb]] = 0
+  }
+
   ### start with no one viral supp
   hiv_supp_matrix[start_infected,1] = 0
   ## simulate starting with time step 2
@@ -216,7 +177,7 @@ run_simulation <- function(risk_group, skew_matrix, syring_share_on, moud_on, in
     prev_hiv_supp <- hiv_supp_matrix[,prev_step]
     prev_suppressed <- which(prev_hiv_supp == 1)
     prev_unsuppress <- which(prev_hiv_supp == 0)
-    if(length(prev_infected) > 0 ){
+    if(length(prev_infected) > 0 ){ ## runs code by infected person 
       for(jj in 1:length(prev_infected)){
         ## jj is the index for the person 
         infected_index = prev_infected[jj]
@@ -240,7 +201,6 @@ run_simulation <- function(risk_group, skew_matrix, syring_share_on, moud_on, in
           inj_partners <- inj_partners[which(active_matrix[inj_partners,prev_step] == 1)] ## are their injecting partners active 
           ### change this to only look at HIV negative partners 
           
-          
           n_inj_partners <- length(inj_partners)
           n_sex_partners <- length(sex_partners)
           
@@ -253,9 +213,13 @@ run_simulation <- function(risk_group, skew_matrix, syring_share_on, moud_on, in
             
             prob_hiv_trans_sex_partner <- pmin(prob_hiv_per_sex_w_suppress, 1)
             prob_hiv_trans_sex_partner <- pmin(early_infect*prob_hiv_trans_sex_partner + prob_hiv_trans_sex_partner, 1)
+            prob_hiv_trans_sex_partner <- sapply(1:n_sex_partners, function(x) rbinom(1, size = sex_freq[x], prob = prob_hiv_trans_sex_partner))
             
-            hiv_status_matrix[sex_partners,ii] = sapply(1:n_sex_partners, function(x) rbinom(1, size = sex_freq[x], prob = prob_hiv_trans_sex_partner))
+            hiv_status_matrix[sex_partners,ii] = prob_hiv_trans_sex_partner
+            
+            wiw[sex_partners[which(prob_hiv_trans_sex_partner == 1)],infected_index] = 1
           }
+          
           
           if(n_inj_partners > 0 ){
             ## number of injection events per individuals 
@@ -276,13 +240,15 @@ run_simulation <- function(risk_group, skew_matrix, syring_share_on, moud_on, in
             prob_hiv_per_share_w_suppress <- pmax(prob_hiv_per_share  - (viral_supp_scale*prob_hiv_per_share), 0) ## rescale the probability of HIV transmisison given viral suppression 
             prob_hiv_trans_inj_partner <- sapply(1:n_inj_partners, function(x) rbinom(1, size = share_syringe_events_per_partner[x], prob = prob_hiv_per_share_w_suppress)) ## using a binomial distribution, determine how many contacts become infected with HIV 
             hiv_status_matrix[inj_partners,ii] = prob_hiv_trans_inj_partner ## update the matrix on HIV status 
+            wiw[sex_partners[which(inj_partners == 1)],infected_index] = 1
           }
         }
       }
     }
     hiv_status_matrix[prev_infected,ii] = 1 ### anyone who was previously infected stays infected 
     
-    ### testing 
+    ### testing - you either will be randomly tested, RCD tested or location based testing
+    
     
     baseline_testing <- rbinom(n, size = 1, prob = hiv_test_prob) ## right now there is no contact tracing increase in likelihood of being tested 
     new_diagnoised <- which(hiv_status_matrix[,ii] == 1 & baseline_testing == 1)
