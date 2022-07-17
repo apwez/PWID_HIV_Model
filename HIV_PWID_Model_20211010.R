@@ -1,3 +1,4 @@
+### Code to model HIV transmission amongst a network of PWID - based on ALIVE data - and focused on looking at changes to network structure and COVID-19 impacts (reductions in syringe services)
 
 ### choose network partners
 ## need to figure out how to fit ergm to egocentric network data
@@ -12,8 +13,8 @@ library(tidyverse)
 library(ggplot2)
 
 ### time units are monthly 
-n <- 10000 ## population size of the entire population -- need to update set to 20k
-n_years <-  5
+n <-5000 ## population size of the entire population -- need to update set to 20k or 35k 
+n_years <-  10
 time_steps <- n_years*12 ## monthly time steps for 5 years 
 
 ### demographic information
@@ -26,8 +27,6 @@ age_distribution <- age_distribution/sum(age_distribution)
 race_distribution = c(0.4, 0.54, 0.01, 0.04) ## 1 = black; 2 =hispanic; 3 = white; 4 = other from BeSure
 gender_distribution = c(0.7, 0.29, 0.01) ## male, female, transgendered  From BeSure
 sexual_identity = c(0.89,0.11) ## 1= hetero, 2 is other - currently not used 
-
-
 age_vec = sample(18:65, size = n, prob = age_distribution, replace = TRUE)
 age_group_vec <- sapply(age_vec, function(x) cut(x, breaks = c(0,30,50,100)))
 race_vec = sample(1:length(race_distribution), size = n, prob = race_distribution, replace = TRUE)
@@ -64,7 +63,7 @@ hist(deg_dist, xlab = 'Degree', col = 'white', main = 'Degree distribution')
 mortality_rates <- c(rep(0,18), rep(1.2, 25-18), rep(2.5, 35-25), rep(3.5, 45-35), rep(6.7, 55-45), rep(12.2, 66-44)) ## per 1,000 person-years -- need to update depending on age_distribution 
 ### needs a scaling for HIV positive 
 ### overdose rates 
-fixed_od_rate <- 28.3/100000 # per 100,000 standard population https://www.cdc.gov/nchs/products/databriefs/db428.htm
+fixed_od_rate <- 13/1000/12#28.3/100000 # per 100,000 standard population https://www.cdc.gov/nchs/products/databriefs/db428.htm
 
 pop_matrix <- matrix(,n,time_steps) ## keep track of each persons age
 ### for monthly data
@@ -155,7 +154,7 @@ make_stop_start_matrix <- function(n_years, time_steps, exp_model_early, exp_mod
   active_status_prob = matrix(,n,time_steps)
   membership_vec <- sample(1:4, n, replace = TRUE, prob = prob_membership)
   ### assumes everyone is a new injector? 
-#  start_spot <- rpois(n, lambda = 14)
+  #  start_spot <- rpois(n, lambda = 14)
   start_spot = 1
   active_status_prob = sapply(1:n, function(x) prob_values[start_spot:(start_spot+time_steps-1),membership_vec[x]])
   return(list(active_status_prob = t(active_status_prob), membership_vec = membership_vec))
@@ -232,6 +231,7 @@ run_simulation <- function(risk_group, skew_matrix, syring_share_on, moud_on, in
           inj_partners <- inj_partners[which(active_matrix[inj_partners,prev_step] == 1)] ## are their injecting partners active 
           ### change this to only look at HIV negative partners 
           
+          
           n_inj_partners <- length(inj_partners)
           n_sex_partners <- length(sex_partners)
           
@@ -264,17 +264,17 @@ run_simulation <- function(risk_group, skew_matrix, syring_share_on, moud_on, in
             inj_acts_per_partner <- floor(pmax((inj_acts_per_partner - moud_effect_inj*inj_acts_per_partner), 0)) ## set to be at least 0 injecting acts per partner
             prob_syringe_share <- pmax(base_syring_share_prob - (base_syring_share_prob*syringe_service_effect),0) ## reduce syringe sharing based on syringe services being available 
             share_syringe_events_per_partner <- sapply(inj_acts_per_partner, function(x) sum(rbinom(x, size = 1, prob = prob_syringe_share))) ## identify how many syringe shaing events there are per partner -- a single probability per person distributed based on the number of injecting events by partner 
-           prob_hiv_per_share_w_suppress <- pmax(prob_hiv_per_share  - (viral_supp_scale*prob_hiv_per_share), 0) ## rescale the probability of HIV transmisison given viral suppression 
-           prob_hiv_trans_inj_partner <- sapply(1:n_inj_partners, function(x) rbinom(1, size = share_syringe_events_per_partner[x], prob = prob_hiv_per_share_w_suppress)) ## using a binomial distribution, determine how many contacts become infected with HIV 
-           hiv_status_matrix[inj_partners,ii] = prob_hiv_trans_inj_partner ## update the matrix on HIV status 
+            prob_hiv_per_share_w_suppress <- pmax(prob_hiv_per_share  - (viral_supp_scale*prob_hiv_per_share), 0) ## rescale the probability of HIV transmisison given viral suppression 
+            prob_hiv_trans_inj_partner <- sapply(1:n_inj_partners, function(x) rbinom(1, size = share_syringe_events_per_partner[x], prob = prob_hiv_per_share_w_suppress)) ## using a binomial distribution, determine how many contacts become infected with HIV 
+            hiv_status_matrix[inj_partners,ii] = prob_hiv_trans_inj_partner ## update the matrix on HIV status 
           }
         }
       }
-        }
+    }
     hiv_status_matrix[prev_infected,ii] = 1 ### anyone who was previously infected stays infected 
     
     ### testing 
-  
+    
     baseline_testing <- rbinom(n, size = 1, prob = hiv_test_prob) ## right now there is no contact tracing increase in likelihood of being tested 
     new_diagnoised <- which(hiv_status_matrix[,ii] == 1 & baseline_testing == 1)
     hiv_diag_matrix[new_diagnoised,ii] = 1
@@ -286,7 +286,7 @@ run_simulation <- function(risk_group, skew_matrix, syring_share_on, moud_on, in
       hiv_supp_matrix[diagnoised_hiv[which(on_art_and_supress == 1)],ii] = 1
       hiv_supp_matrix[diagnoised_hiv[which(on_art_and_supress == 0)], ii] = 0
     }
-  
+    
     ## update demography -- people stopping, dying, start
     pop_status <- pop_matrix[,prev_step] 
     prev_mortality <- mortality_matrix[,prev_step]
@@ -299,7 +299,7 @@ run_simulation <- function(risk_group, skew_matrix, syring_share_on, moud_on, in
     active_matrix[,ii] = update_status
   }
   return(list(mortality_matrix = mortality_matrix, active_matrix = active_matrix, hiv_status_matrix = hiv_status_matrix, hiv_supp_matrix = hiv_supp_matrix, hiv_diag_matrix = hiv_diag_matrix, inj_events_per_indiv = inj_events_per_indiv, mean_inj_events_per_partner = mean_inj_events_per_partner))
-
+  
 }
 
 # median of 14 years of injecting at baseline (iqr = 7-20)
@@ -347,8 +347,6 @@ rownames(test_matrix) <- c('base', 'less', 'more')
 barplot(test_matrix, beside = TRUE, col = pal_test, xlab = 'Avg inj events/month', ylab = 'Prob membership')
 legend('top', legend = c('Base', 'Less inj', 'More inj'), col = pal_test, pch = 15, bty = 'n', ncol = 1)
 
-
-
 ### unorganized code to run some simulations 
 
 ## base scenario
@@ -374,10 +372,23 @@ skew_matrix_2 <- matrix(sample(1:2,n, replace = TRUE),n,time_steps)
 syring_share_on <- rep(0.75, time_steps) #c(rep(0, time_steps/2), rep(0, time_steps/2)) ## index if syring sharing services are available 
 moud_on <- rep(1, time_steps) #c(rep(0, time_steps/2), rep(0, time_steps/2)) ## index if MOUD services are available 1 if it is available, 0 if not 
 
-syring_share_on_2 <- c(rep(0.75, 2*12), rep(0, 12), rep(0.75, ((time_steps/12)-2-1)*12)) ## index if syring sharing services are available 
-moud_on_2 <- c(rep(1, 2*12), rep(0, 12), rep(1, ((time_steps/12)-2-1)*12)) ## index if MOUD services are available
+syring_share_on_3m <- syring_share_on
+syring_share_on_3m[25:(25+2)] = 0
+moud_on_3m <- moud_on
+moud_on_3m[25:(25+2)] = 0
 
-n_sim = 5
+syring_share_on_6m <- syring_share_on
+syring_share_on_6m[25:(25+5)] = 0
+moud_on_6m <- moud_on
+moud_on_6m[25:(25+5)] = 0
+
+syring_share_on_12m <- syring_share_on
+syring_share_on_12m[25:(25+11)] = 0
+moud_on_12m <- moud_on
+moud_on_12m[25:(25+11)] = 0
+
+
+n_sim = 25
 ### xx
 total_numb_w_base <- matrix(,n_sim,time_steps,)
 for(ii in 1:n_sim){
@@ -385,6 +396,143 @@ for(ii in 1:n_sim){
   sim_base_results <- run_simulation(base_risk_group, base_skew_matrix, syring_share_on, moud_on, initiation_rate, cessation_rate, inj_network, sexual_network, active_status_prob, stop_start_membership, lambda_vec)
   total_numb_w_base[ii,] = colSums(sim_base_results$hiv_status_matrix)
 }
+
+### simulations with covid-19 disruptions lasting 3, 6 and 12 months - both MOUD and SSP
+total_numb_w_covid_3m <- matrix(,n_sim,time_steps,)
+for(ii in 1:n_sim){
+  print(ii)
+  sim_base_results <- run_simulation(base_risk_group, base_skew_matrix, syring_share_on_3m, moud_on_3m, initiation_rate, cessation_rate, inj_network, sexual_network, active_status_prob, stop_start_membership, lambda_vec)
+  total_numb_w_covid_3m[ii,] = colSums(sim_base_results$hiv_status_matrix)
+}
+
+total_numb_w_covid_6m <- matrix(,n_sim,time_steps,)
+for(ii in 1:n_sim){
+  print(ii)
+  sim_base_results <- run_simulation(base_risk_group, base_skew_matrix, syring_share_on_6m, moud_on_6m, initiation_rate, cessation_rate, inj_network, sexual_network, active_status_prob, stop_start_membership, lambda_vec)
+  total_numb_w_covid_6m[ii,] = colSums(sim_base_results$hiv_status_matrix)
+}
+
+total_numb_w_covid_12m <- matrix(,n_sim,time_steps,)
+for(ii in 1:n_sim){
+  print(ii)
+  sim_base_results <- run_simulation(base_risk_group, base_skew_matrix, syring_share_on_12m, moud_on_12m, initiation_rate, cessation_rate, inj_network, sexual_network, active_status_prob, stop_start_membership, lambda_vec)
+  total_numb_w_covid_12m[ii,] = colSums(sim_base_results$hiv_status_matrix)
+}
+
+### simulations with only changes to SSP
+
+total_numb_w_covid_12m_only_ssp <- matrix(,n_sim,time_steps,)
+for(ii in 1:n_sim){
+  print(ii)
+  sim_base_results <- run_simulation(base_risk_group, base_skew_matrix, syring_share_on_12m, moud_on, initiation_rate, cessation_rate, inj_network, sexual_network, active_status_prob, stop_start_membership, lambda_vec)
+  total_numb_w_covid_12m_only_ssp[ii,] = colSums(sim_base_results$hiv_status_matrix)
+}
+
+### simulation with only change to MOUD
+
+total_numb_w_covid_12m_only_moud <- matrix(,n_sim,time_steps,)
+for(ii in 1:n_sim){
+  print(ii)
+  sim_base_results <- run_simulation(base_risk_group, base_skew_matrix, syring_share_on, moud_on_12m, initiation_rate, cessation_rate, inj_network, sexual_network, active_status_prob, stop_start_membership, lambda_vec)
+  total_numb_w_covid_12m_only_moud[ii,] = colSums(sim_base_results$hiv_status_matrix)
+}
+
+### figure looking at just COVID-19 disruptions
+t1 = 2*12
+t2 = 7*12-1
+mean_numb_w_base <- colMeans(total_numb_w_base[,t1:t2])
+mean_numb_w_covid_3m <- colMeans(total_numb_w_covid_3m[,t1:t2])
+mean_numb_w_covid_6m <- colMeans(total_numb_w_covid_6m[,t1:t2])
+mean_numb_w_covid_12m <- colMeans(total_numb_w_covid_12m[,t1:t2])
+mean_numb_w_covid_12m_only_ssp <- colMeans(total_numb_w_covid_12m_only_ssp[,t1:t2])
+mean_numb_w_covid_12m_only_moud <- colMeans(total_numb_w_covid_12m_only_moud[,t1:t2])
+
+library(RColorBrewer)
+pal_1 <- brewer.pal(9, 'Set1')
+plot(NA, NA, xlim = c(1,60), ylim = c(-100,200), xlab = 'Months', ylab = '% Change over Baseline')
+abline(h=0, lty = 2, col = 'red')
+lines(100*(mean_numb_w_covid_3m - mean_numb_w_base)/mean_numb_w_base, type = 'b', col = pal_1[2], pch = 16)
+lines(100*(mean_numb_w_covid_6m - mean_numb_w_base)/mean_numb_w_base, type = 'b', col = pal_1[3], pch = 16)
+lines(100*(mean_numb_w_covid_12m - mean_numb_w_base)/mean_numb_w_base, type = 'b', col = pal_1[4], pch = 16)
+lines(100*(mean_numb_w_covid_12m_only_ssp - mean_numb_w_covid_12m)/mean_numb_w_covid_12m, type = 'b', col = pal_1[4], pch = 15)
+lines(100*(mean_numb_w_covid_12m_only_moud - mean_numb_w_covid_12m)/mean_numb_w_covid_12m, type = 'b', col = pal_1[4], pch = 14) ## something wrong with this one
+legend('topright', bty = 'n', legend = c('3m', '6m', '12m', '12m+SSP', '12m+MOUD'), col = c(pal_1[2], pal_1[3], pal_1[4], pal_1[4], pal_1[4]), pch = c(16, 16, 16, 15, 14), ncol = 2)
+
+### simulations with changes in distribution (skew) in injecting events 
+
+total_numb_w_skew <- matrix(,n_sim,time_steps,)
+for(ii in 1:n_sim){
+  print(ii)
+  sim_base_results <- run_simulation(base_risk_group, skew_matrix_2, syring_share_on, moud_on, initiation_rate, cessation_rate, inj_network, sexual_network, active_status_prob, stop_start_membership, lambda_vec)
+  total_numb_w_skew[ii,] = colSums(sim_base_results$hiv_status_matrix)
+}
+
+
+total_numb_w_less_freq <- matrix(,n_sim,time_steps,)
+for(ii in 1:n_sim){
+  sim_less_freq_inj_results <- run_simulation(less_freq_inj_risk_group, base_skew_matrix, syring_share_on, moud_on, initiation_rate, cessation_rate, inj_network, sexual_network, active_status_prob, stop_start_membership, lambda_vec)
+  total_numb_w_less_freq[ii,] = colSums(sim_less_freq_inj_results$hiv_status_matrix)
+}
+
+total_numb_w_less_freq_skew2 <- matrix(,n_sim,time_steps,)
+for(ii in 1:n_sim){
+  sim_less_freq_inj_results <- run_simulation(less_freq_inj_risk_group, skew_matrix_2, syring_share_on, moud_on, initiation_rate, cessation_rate, inj_network, sexual_network, active_status_prob, stop_start_membership, lambda_vec)
+  total_numb_w_less_freq_skew2[ii,] = colSums(sim_less_freq_inj_results$hiv_status_matrix)
+}
+
+total_numb_w_more_freq <- matrix(,n_sim,time_steps,)
+for(ii in 1:n_sim){
+  print(ii)
+  ## if 1 - no sharing is possible 
+  sim_less_freq_inj_results_2 <- run_simulation(more_freq_inj_risk_group, base_skew_matrix, syring_share_on, moud_on, initiation_rate, cessation_rate, inj_network, sexual_network, active_status_prob, stop_start_membership, lambda_vec)
+  total_numb_w_more_freq[ii,] = colSums(sim_less_freq_inj_results_2$hiv_status_matrix)
+}
+
+total_numb_w_more_freq_skew2 <- matrix(,n_sim,time_steps,)
+for(ii in 1:n_sim){
+  print(ii)
+  ## if 1 - no sharing is possible 
+  sim_less_freq_inj_results_2 <- run_simulation(more_freq_inj_risk_group, skew_matrix_2, syring_share_on, moud_on, initiation_rate, cessation_rate, inj_network, sexual_network, active_status_prob, stop_start_membership, lambda_vec)
+  total_numb_w_more_freq_skew2[ii,] = colSums(sim_less_freq_inj_results_2$hiv_status_matrix)
+}
+
+### figure looking at just changes in distribution of injecting events 
+t1 = 2*12
+t2 = 7*12-1
+mean_numb_w_skew <- colMeans(total_numb_w_skew[,t1:t2])
+mean_numb_w_less_freq <- colMeans(total_numb_w_less_freq[,t1:t2])
+mean_numb_w_less_freq_skew2 <- colMeans(total_numb_w_less_freq_skew2[,t1:t2])
+mean_numb_w_more_freq  <- colMeans(total_numb_w_more_freq[,t1:t2])
+mean_numb_w_more_freq_skew2 <- colMeans(total_numb_w_more_freq_skew2[,t1:t2])
+
+# library(RColorBrewer)
+# pal_1 <- brewer.pal(9, 'Set1')
+plot(NA, NA, xlim = c(1,60), ylim = c(-100,200), xlab = 'Months', ylab = '% Change over Baseline')
+abline(h=0, lty = 2, col = 'red')
+lines(100*(mean_numb_w_skew - mean_numb_w_base)/mean_numb_w_base, type = 'b', col = pal_1[5], pch = 16)
+lines(100*(mean_numb_w_less_freq - mean_numb_w_base)/mean_numb_w_base, type = 'b', col = pal_1[6], pch = 16)
+lines(100*(mean_numb_w_less_freq_skew2 - mean_numb_w_base)/mean_numb_w_base, type = 'b', col = pal_1[7], pch = 16)
+lines(100*(mean_numb_w_more_freq - mean_numb_w_base)/mean_numb_w_base, type = 'b', col = pal_1[8], pch = 16)
+lines(100*(mean_numb_w_more_freq_skew2 - mean_numb_w_base)/mean_numb_w_base, type = 'b', col = pal_1[9], pch = 16)
+
+legend('topright', bty = 'n', legend = c('skew', 'less-freq', 'less-freq + skew', 'more-freq', 'more-freq + skew'), col = c(pal_1[5], pal_1[6], pal_1[7], pal_1[8], pal_1[9]), pch = 16, ncol = 2) ## skew is in distribution of injecting events
+
+
+
+
+plot(NA, NA, xlim = c(1,60), ylim = c(-100,200), xlab = 'Months', ylab = '% Change over Baseline')
+abline(h=0, lty = 2, col = 'red')
+lines(100*(mean_numb_w_skew - mean_numb_w_base)/mean_numb_w_base,  col = pal_1[5], pch = 16, lwd = 2)
+lines(100*(mean_numb_w_less_freq - mean_numb_w_base)/mean_numb_w_base, col = pal_1[6], pch = 16, lwd = 2)
+lines(100*(mean_numb_w_more_freq - mean_numb_w_base)/mean_numb_w_base, col = pal_1[8], pch = 16, lwd = 2)
+lines(100*(mean_numb_w_covid_3m - mean_numb_w_base)/mean_numb_w_base,  col = pal_1[2], pch = 16, lwd = 2)
+lines(100*(mean_numb_w_covid_6m - mean_numb_w_base)/mean_numb_w_base, col = pal_1[3], pch = 16, lwd = 2)
+lines(100*(mean_numb_w_covid_12m - mean_numb_w_base)/mean_numb_w_base,  col = pal_1[4], pch = 16, lwd = 2)
+legend('topright', bty = 'n', legend = c('3m', '6m', '12m', '12m+SSP', '12m+MOUD'), col = c(pal_1[2], pal_1[3], pal_1[4], pal_1[4], pal_1[4]), pch = c(16, 16, 16, 15, 14), ncol = 2)
+legend('topleft', bty = 'n', legend = c('skew', 'less-freq', 'less-freq + skew', 'more-freq', 'more-freq + skew'), col = c(pal_1[5], pal_1[6], pal_1[7], pal_1[8], pal_1[9]), pch = 16, ncol = 2) ## skew is in distribution of injecting events
+
+
+### simulations with changes in distribution (skew) in injecting events and covid-19 disruptions 
 
 total_numb_w_skew <- matrix(,n_sim,time_steps,)
 for(ii in 1:n_sim){
@@ -482,11 +630,32 @@ boxplot(total_numb_w_base, ylab = 'HIV cases', xlab = 'Months', col = pal_test[1
 boxplot(total_numb_w_covid, ylab = 'HIV cases', xlab = 'Months', main = 'COVID', col = 'red')
 boxplot(total_numb_w_skew, ylab = 'HIV cases', xlab = 'Months', main = 'Skew Dist', col = 'grey')
 
+time_stop = 12*2
+avg_values <- data.frame(total = c(colMeans(total_numb_w_base[,1:time_stop]), colMeans(total_numb_w_less_freq[,1:time_stop]), colMeans(total_numb_w_less_freq_off[,1:time_stop]), colMeans(total_numb_w_more_freq[,1:time_stop]), colMeans(total_numb_w_more_freq_off[,1:time_stop]), colMeans(total_numb_w_less_freq_skew2[,1:time_stop]), colMeans(total_numb_w_less_freq_off_skew2[,1:time_stop]), colMeans(total_numb_w_more_freq_skew2[,1:time_stop]), colMeans(total_numb_w_more_freq_off_skew2[,1:time_stop]), colMeans(total_numb_w_covid[,1:time_stop])), 
+                         type = c(rep('base',time_stop), rep('less freq',time_stop), rep('less freq + covid',time_stop), rep('more freq', time_stop), rep('more freq + covid', time_stop), rep('less freq + skew', time_stop), rep('less freq + covid + skew', time_stop), rep('more freq + skew', time_stop), rep('more freq + covid + skew', time_stop), rep('covid', time_stop)))
+
+base_values <- filter(avg_values, type == 'base')
+base_values_vec <- rep(base_values$total, times = length(unique(avg_values$type)))
+avg_values$norm <- 100*(avg_values$total - base_values_vec)/base_values_vec
+
+
+
+ggplot(avg_values, aes(x = type, y = total, group = type)) + geom_boxplot() + theme_bw()
+
+
+ggplot(avg_values, aes(x = type, y = norm, group = type)) + geom_boxplot() + theme_bw()
+
 
 
 
 
 ggplot(values, aes(x = type, y = total, group = type)) + geom_boxplot() + theme_bw()
+
+time_stop = 12*2
+values_short <- data.frame(total = c(total_numb_w_base[,time_stop], total_numb_w_less_freq[,time_stop], total_numb_w_less_freq_off[,time_stop], total_numb_w_more_freq[,time_stop], total_numb_w_more_freq_off[,time_stop],total_numb_w_less_freq_skew2[,time_stop], total_numb_w_less_freq_off_skew2[,time_stop], total_numb_w_more_freq_skew2[,time_stop], total_numb_w_more_freq_off_skew2[,time_stop]), 
+                           type = c(rep('base',n_sim), rep('less freq',n_sim), rep('less freq + covid',n_sim), rep('more freq', n_sim), rep('more freq + covid', n_sim), rep('less freq + skew', n_sim), rep('less freq + covid + skew', n_sim), rep('more freq + skew', n_sim), rep('more freq + covid + skew', n_sim)))
+
+ggplot(values_short, aes(x = type, y = total, group = type)) + geom_boxplot() + theme_bw()
 
 plot(colSums(sim_base_results$hiv_status_matrix))
 lines(colSums(sim_less_freq_inj_results$hiv_status_matrix))
@@ -538,6 +707,10 @@ boxplot(inj_events_per_indiv)
 boxplot(mean_inj_events_per_partner)
 
 ## modeling care continumum 
+
+
+### update model for Shruti
+
 
 
 ### OLD 
