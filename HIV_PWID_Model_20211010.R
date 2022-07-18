@@ -175,7 +175,16 @@ stop_start_param <- make_stop_start_matrix(n_years, time_steps, exp_model_early,
 active_status_prob = stop_start_param$active_status_prob
 stop_start_membership = stop_start_param$membership_vec
 
-### main code
+### main code to simulate HIV transmission on the network 
+## risk_group: 4 categories of risk behavior 
+## skew_matrix: how do you distribute your injecting events
+## syring_share_on: binary if syringe services are available
+## moud_on: binary if moud resources are available
+## inj_network: network of injecting partners
+## sexual_network: network of sexual contacts
+## active_status_prob: probability that you are an active user based on risk category
+## stop-start_membership: cessation/relapse patterns
+## lambda_vec: mean injecting events/month
 run_simulation <- function(risk_group, skew_matrix, syring_share_on, moud_on, initiation_rate, cessation_rate, inj_network, sexual_network, active_status_prob, stop_start_membership, lambda_vec){
   moud_effect <- c(0.6, 0.6, 0.3, 0.1) ## how much should injecting events decrease by if using MOUD
   likelihood_on_moud <- c(0.3, 0.3, 0.4, 0.5) ## what is the probability that a person in each stop/start group is on MOUD when it is available - from ALIVE/BECKY 
